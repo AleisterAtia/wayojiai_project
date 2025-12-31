@@ -224,10 +224,9 @@
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
                                                         Rp {{ number_format($order->total_price, 0, ',', '.') }}
                                                     </td>
-                                                    <td
-                                                        class="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-bold text-right">
-                                                        +{{ number_format(floor($order->total_price / 1000), 0, ',', '.') }}
-                                                    </td>
+                                                   <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-orange-600 align-top">
+    +{{ number_format(floor($order->total_price / 10000) * 10, 0, ',', '.') }}
+</td>
                                                 </tr>
                                             @endforeach
                                         </tbody>
