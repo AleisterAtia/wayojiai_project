@@ -7,6 +7,8 @@
 
     <title>{{ config('app.name', 'Mr. Wayouji POS') }}</title>
 
+    
+    <link rel="stylesheet" href="{{ asset('build/assets/app-CrQzSIrt.css') }}">
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
@@ -71,5 +73,6 @@
         </div>
 
     </div>
+    <script src="{{ asset('build/assets/app-Hw21ffJ3.js') }}"></script>
 </body>
 </html>
