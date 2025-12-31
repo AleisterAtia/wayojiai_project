@@ -62,7 +62,7 @@ class MenuController extends Controller
             'price' => 'required|numeric',
             'stock' => 'required|integer',
             'status' => 'required|in:tersedia,habis',
-            'image' => 'nullable|image|max:2048',
+            'image' => 'nullable|image|max:51200',
         ]);
 
         if ($request->hasFile('image')) {
