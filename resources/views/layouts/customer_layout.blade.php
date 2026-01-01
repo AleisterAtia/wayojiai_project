@@ -162,7 +162,7 @@
     </button>
 
     {{-- TOMBOL DAFTAR MEMBER (MOBILE) --}}
-    <button type="button" @click="mobileMenuOpen = false; registerInfoModal = true"
+    <button type="button" @click="mobileMenuOpen = false; showRegisterInfo = true"
         class="block w-full text-left bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-3 rounded-lg flex items-center space-x-1.5 transition duration-200">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
