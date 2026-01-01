@@ -7,6 +7,8 @@
     <title>Mr.Wayojiai Buah Premium Padang</title>
     <meta name="csrf-token" content="{{ csrf_token() }}"> {{-- PENTING untuk AJAX --}}
 
+    <link rel="icon" href="{{ asset('images/LogoToko.jpeg') }}" type="image/jpeg">
+
     {{-- Tailwind --}}
     <script src="https://cdn.tailwindcss.com"></script>
 
