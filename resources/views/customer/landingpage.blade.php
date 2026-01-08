@@ -115,14 +115,14 @@
                         </div>
 
                         {{-- KARTU 4: TOTAL TRANSAKSI --}}
-                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        {{-- <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                             <div class="flex justify-between items-start mb-4">
                                 <h3 class="text-sm font-semibold text-gray-800">Total Transaksi</h3>
                                 <span class="text-orange-500"><i class="bi bi-bag"></i></span>
                             </div>
                             <p class="text-2xl font-bold text-orange-600">12</p>
                             <p class="text-xs text-gray-500 mt-1">Transaksi bulan ini</p>
-                        </div>
+                        </div> --}}
                     </div>
 
                     {{-- 2. TAB TUKAR HADIAH --}}
