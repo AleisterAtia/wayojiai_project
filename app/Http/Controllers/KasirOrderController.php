@@ -8,6 +8,7 @@ use App\Models\Menu;
 use App\Models\Order;
 use App\Models\Reward;
 use App\Models\Category;
+use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use App\Events\OrderStatusUpdated;
@@ -167,16 +168,78 @@ public function createManual()
      * Mengubah status pesanan.
      * Ini adalah FUNGSI KUNCI yang akan mentrigger update di halaman pelanggan.
      */
-    public function updateStatus(Request $request, Order $order)
+public function updateStatus(Request $request, Order $order)
 {
     $request->validate([
         'status' => 'required|in:new,process,done,cancel,complete'
     ]);
 
-    $order->update([
-        'status' => $request->status
-    ]);
+    $oldStatus = $order->status;
+    $newStatus = $request->status;
 
+    if ($oldStatus === $newStatus) return redirect()->back();
+
+    // ==================================================================
+    // ✅ LOGIKA TAMBAH POIN (PINDAHAN DARI ORDER CONTROLLER)
+    // ==================================================================
+    if (in_array($newStatus, ['done', 'complete']) && !in_array($oldStatus, ['done', 'complete'])) {
+        
+        Log::info("[Kasir] Status berubah ke DONE. Cek Poin Order ID: {$order->id}");
+
+        if ($order->customer_id) {
+            $customer = Customer::find($order->customer_id);
+            
+            // Cek Member (Pastikan logika ini sesuai database Yang Mulia)
+            // Menggunakan filter_var untuk menangani boolean/integer 1/0
+            $isMember = $customer && (filter_var($customer->is_member, FILTER_VALIDATE_BOOLEAN) || $customer->is_member == 1);
+
+            if ($isMember) {
+                // Hitung Poin (Hanya kelipatan 10.000)
+                // Contoh: 20.000 / 10.000 = 2 * 10 = 20 Poin
+                $pointsEarned = floor($order->total_price / 10000) * 10;
+
+                if ($pointsEarned > 0) {
+                    $customer->increment('points', $pointsEarned);
+                    Log::info("[Kasir] SUKSES: Poin +{$pointsEarned} masuk ke Customer ID {$customer->id}");
+                }
+            } else {
+                Log::info("[Kasir] Customer bukan member atau tidak valid.");
+            }
+        }
+    }
+    // ==================================================================
+
+    // Logika Batalkan Pesanan (Tarik Poin)
+    if ($newStatus === 'cancel') {
+        // Balikin Stok
+        foreach ($order->orderItems as $item) {
+            if ($item->menu) $item->menu->increment('stock', $item->quantity);
+        }
+
+        // Tarik Poin jika sebelumnya sudah Done
+        if (in_array($oldStatus, ['done', 'complete'])) {
+            if ($order->customer_id) {
+                $customer = Customer::find($order->customer_id);
+                $isMember = $customer && (filter_var($customer->is_member, FILTER_VALIDATE_BOOLEAN) || $customer->is_member == 1);
+
+                if ($isMember) {
+                    $pointsToDeduct = floor($order->total_price / 10000) * 10;
+                    if ($pointsToDeduct > 0) {
+                        if ($customer->points >= $pointsToDeduct) {
+                            $customer->decrement('points', $pointsToDeduct);
+                            Log::info("[Kasir] SUKSES TARIK POIN: -{$pointsToDeduct}");
+                        } else {
+                            $customer->update(['points' => 0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    $order->update(['status' => $newStatus]);
+    
+    // Broadcast event
     broadcast(new OrderStatusUpdated($order));
 
     return redirect()->back()->with('success', 'Status pesanan berhasil diperbarui.');

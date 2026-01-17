@@ -292,7 +292,7 @@ class OrderController extends Controller
 
     public function updatePayment(Request $request, Order $order)
     {
-        // Validasi input (cash atau qris)
+        // 1. Validasi Input
         $validator = Validator::make($request->all(), [
             'payment_method' => 'required|in:cash,qris',
         ]);
@@ -302,57 +302,38 @@ class OrderController extends Controller
         }
 
         try {
-            // Update order yang ada (via Route-Model Binding)
-            // Update order yang ada
+            // ⬇️ PENTING: Simpan status lama untuk pengecekan
+            $oldStatus = $order->status;
+
+            // 2. Update Order
+            // GANTI status menjadi 'process' (artinya sudah bayar, sedang disiapkan)
             $order->update([
                 'payment_method' => $request->payment_method,
-                'status' => 'new', // <--- GANTI 'paid' MENJADI 'done'
+                'status' => 'new', 
             ]);
 
             // =========================================================
-            // SISTEM POIN MEMBER (START) - Ditambahkan di sini
+            // SISTEM POIN MEMBER (CAIR SAAT STATUS PROCESS)
             // =========================================================
-
-            // Cek apakah order punya customer_id (artinya member login saat checkout)
-            if ($order->customer_id) {
-                $customer = Customer::find($order->customer_id);
-
-                // Cek apakah data customer valid dan dia member aktif
-                if ($customer && $customer->is_member) {
-
-                    // RUMUS POIN: Setiap kelipatan 10.000 dapat 10 poin
-                    // Contoh: 25.000 / 10.000 = 2.5 -> floor jadi 2 -> 2 * 10 = 20 Poin
-                    $pointsEarned = floor($order->total_price / 10000) * 10;
-
-                    if ($pointsEarned > 0) {
-                        $customer->points = $customer->points + $pointsEarned;
-                        $customer->save(); // Simpan perubahan poin
-
-                        // Debugging (Opsional): Cek di log laravel.log
-                        Log::info("Poin ditambahkan: {$pointsEarned} ke Customer ID: {$customer->id}");
-                    }
-                }
-            }
+            
+            // Logika: Poin HANYA ditambahkan jika status sebelumnya 'new' (belum bayar).
+            // Ini mencegah poin bertambah berkali-kali jika tombol ditekan ulang. 
             // =========================================================
-            // SISTEM POIN MEMBER (END)
+            // END SISTEM POIN
             // =========================================================
 
             session(['tracking_order_id' => $order->id]);
-
-            // Menyiapkan "Flash Message" untuk halaman tracking nanti
             session()->flash('order_success', 'Pembayaran Anda berhasil dikonfirmasi!');
 
             broadcast(new OrderStatusUpdated($order));
 
-            // Kirim respon sukses
             return response()->json([
                 'success' => true,
-                'message' => 'Metode pembayaran berhasil diperbarui.'
+                'message' => 'Metode pembayaran berhasil diperbarui menjadi Process.'
             ]);
 
         } catch (\Exception $e) {
             Log::error('Update Payment Error: ' . $e->getMessage());
-
             return response()->json(['message' => 'Gagal memperbarui metode pembayaran.'], 500);
         }
     }
@@ -715,20 +696,89 @@ class OrderController extends Controller
      * Mengubah Status Pesanan (Digunakan oleh tombol di Kanban Board)
      * Route: POST /kasir/pesanan-online/{order}/update-status
      */
+    /**
+     * Mengubah Status Pesanan (Digunakan oleh tombol di Kanban Board)
+     * Route: POST /kasir/pesanan-online/{order}/update-status
+     */
     public function updateStatus(Request $request, Order $order)
-{
-    $request->validate([
-        'status' => 'required|in:new,process,done,cancel,complete'
-    ]);
+    {
+        $request->validate([
+            'status' => 'required|in:new,process,done,cancel,complete'
+        ]);
 
-    $order->update([
-        'status' => $request->status
-    ]);
+        $oldStatus = $order->status;
+        $newStatus = $request->status;
 
-    // Broadcast event agar Tracking Customer terupdate otomatis
-    broadcast(new OrderStatusUpdated($order));
+        if ($oldStatus === $newStatus) return redirect()->back();
 
-    return redirect()->back()->with('success', 'Status pesanan berhasil diperbarui.');
-}
+        // 1. TAMBAH POIN (Logika dengan Debugging)
+        if (in_array($newStatus, ['done', 'complete']) && !in_array($oldStatus, ['done', 'complete'])) {
+            
+            Log::info("Status berubah ke DONE/COMPLETE. Cek Poin untuk Order ID: {$order->id}");
+
+            // Cek Customer ID
+            if ($order->customer_id) {
+                $customer = \App\Models\Customer::find($order->customer_id);
+                
+                if ($customer) {
+                    // Cek Status Member (Handle berbagai format boolean/integer)
+                    $isMember = filter_var($customer->is_member, FILTER_VALIDATE_BOOLEAN) || $customer->is_member == 1;
+
+                    if ($isMember) {
+                        // Hitung Poin (Kelipatan 10.000)
+                        $pointsEarned = floor($order->total_price / 10000) * 10;
+
+                        if ($pointsEarned > 0) {
+                            $customer->increment('points', $pointsEarned);
+                            Log::info("SUKSES: Poin +{$pointsEarned} ditambahkan ke Customer: {$customer->name}");
+                        } else {
+                            Log::info("GAGAL: Total belanja Rp " . number_format($order->total_price) . " belum cukup dapat poin.");
+                        }
+                    } else {
+                        Log::info("GAGAL: Customer {$customer->name} bukan Member (is_member: {$customer->is_member})");
+                    }
+                } else {
+                    Log::error("GAGAL: Data Customer ID {$order->customer_id} tidak ditemukan di database.");
+                }
+            } else {
+                Log::info("GAGAL: Order ini tidak memiliki customer_id (Pelanggan Tamu/Guest).");
+            }
+        }
+
+        // 2. BATAL PESANAN (Tarik poin)
+        if ($newStatus === 'cancel') {
+            // Balikin Stok
+            foreach ($order->orderItems as $item) {
+                if ($item->menu) $item->menu->increment('stock', $item->quantity);
+            }
+
+            // Tarik Poin (Hanya jika sebelumnya statusnya sudah 'done')
+            if (in_array($oldStatus, ['done', 'complete'])) {
+                if ($order->customer_id) {
+                    $customer = \App\Models\Customer::find($order->customer_id);
+                    // Gunakan logika is_member yang lebih kuat
+                    $isMember = $customer && (filter_var($customer->is_member, FILTER_VALIDATE_BOOLEAN) || $customer->is_member == 1);
+
+                    if ($isMember) {
+                        $pointsToDeduct = floor($order->total_price / 10000) * 10;
+                        if ($pointsToDeduct > 0) {
+                            if ($customer->points >= $pointsToDeduct) {
+                                $customer->decrement('points', $pointsToDeduct);
+                                Log::info("SUKSES: Poin -{$pointsToDeduct} ditarik dari Customer: {$customer->name}");
+                            } else {
+                                $customer->update(['points' => 0]);
+                                Log::info("SUKSES: Poin ditarik habis (Reset ke 0) dari Customer: {$customer->name}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        $order->update(['status' => $newStatus]);
+        broadcast(new OrderStatusUpdated($order));
+
+        return redirect()->back()->with('success', 'Status pesanan berhasil diperbarui.');
+    }
 
 }

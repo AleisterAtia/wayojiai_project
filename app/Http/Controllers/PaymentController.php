@@ -22,80 +22,35 @@ class PaymentController extends Controller
         // 1. Cari Order
         $order = Order::findOrFail($id);
         
-        // ⬇️ VARIABEL UNTUK MEMBANDINGKAN STATUS SEBELUM DIUBAH ⬇️
+        // ⬇️ VARIABEL PENTING: SIMPAN STATUS LAMA SEBELUM DIUBAH
         $oldStatus = $order->status;
 
-        // 2. Update Data Order (Status & Metode Pembayaran)
-        // **CATATAN PENTING:** // Karena ini adalah PaymentController, kita asumsikan 'new' -> 'paid'
-        // Jika Anda ingin menggunakan status 'process' di tracking pelanggan, 
-        // Anda harus memilih status mana yang harus diterapkan di sini:
-        $newStatus = 'process'; // Kita gunakan 'process' agar tracking berjalan
+        // 2. Tentukan Status Baru
+        $newStatus = 'process'; 
         
+        // Update Data Order
         $order->status = $newStatus; 
         $order->payment_method = $request->payment_method;
-        $order->payment_status = 'paid'; // Jika ada kolom payment_status
+        $order->payment_status = 'paid'; 
         $order->save();
 
         // =========================================================
-        // SISTEM POIN MEMBER (START)
+        // SISTEM POIN MEMBER (DIPERBAIKI)
         // =========================================================
 
-        // Cek 1: Apakah user login?
-        // Cek 2: Apakah user punya data customer?
-        if (Auth::check() && Auth::user()->customer) {
-
-            $customer = Auth::user()->customer;
-
-            // Cek 3: Apakah dia Member Aktif?
-            // (Asumsi kolom is_member bernilai 1 atau true)
-            if ($customer->is_member) {
-
-                // Ambil total belanja
-                $totalBelanja = $order->total_price;
-
-                // RUMUS: Setiap kelipatan 10.000 dapat 10 poin
-                // floor(25000 / 10000) = 2.  => 2 * 10 = 20 Poin.
-                $pointsEarned = floor($totalBelanja / 10000) * 10;
-
-                if ($pointsEarned > 0) {
-                    // Tambahkan ke poin yang ada sekarang
-                    $customer->points = $customer->points + $pointsEarned;
-                    $customer->save();
-                }
-            }
-        }
+        // 🛑 PERBAIKAN UTAMA DI SINI 🛑
+        // Kita hanya menambahkan poin JIKA status sebelumnya adalah 'new'.
+        // Jika status sebelumnya sudah 'process', 'done', atau lainnya, JANGAN tambah poin lagi.
         // =========================================================
-        // SISTEM POIN MEMBER (END)
-        // =========================================================
-
-
-        // =========================================================
-        // ⬇️ TAMBAHAN: LOGIKA BROADCAST UNTUK TRACKING PELANGGAN ⬇️
+        // LOGIKA BROADCAST
         // =========================================================
         
-        // Asumsi: 
-        // 1. Jika order sebelumnya 'new' (menunggu bayar) dan sekarang 'process' (dibayar & dikonfirmasi), 
-        //    maka kirim event PaymentConfirmed.
-        // 2. Jika ini order manual, $request->payment_confirmed akan null/false, jadi broadcast normal.
-
-        // **PERHATIAN**: Karena ini dari PaymentController, kita TIDAK punya hidden input `payment_confirmed`
-        // dari sisi Kasir. Kita asumsikan SEMUA update dari method ini adalah konfirmasi pembayaran.
-        
+        // Broadcast PaymentConfirmed hanya jika transisi dari New -> Process
         if ($oldStatus === 'new' && $newStatus === 'process') {
-            // Ini adalah konfirmasi pembayaran pertama. Kirim event PaymentConfirmed.
-            // Pelanggan akan melihat modal "Berhasil Dikonfirmasi" dan tracking berubah ke 'process'.
             broadcast(new PaymentConfirmed($order));
         } else {
-            // Jika status berubah dari selain 'new' atau ini order manual/order lama, 
-            // kita tetap memancarkan event umum (optional, jika Anda ingin semua update status terkirim)
-            // Namun, karena ini PaymentController, seharusnya hanya terjadi sekali (new -> process).
             broadcast(new OrderStatusUpdated($order)); 
         }
-
-        // =========================================================
-        // ⬆️ LOGIKA BROADCAST UNTUK TRACKING PELANGGAN (END) ⬆️
-        // =========================================================
-        
 
         return response()->json([
             'success' => true,
